@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-const BILI_SYNC_VERSION = '1.0.0';
+const BILI_SYNC_VERSION = '1.1.0';
 
 final class BiliSyncException extends RuntimeException
 {
@@ -203,6 +203,9 @@ function bili_save_config(array $cfg): void
     @chmod($tmp, 0640);
     if (!rename($tmp, $path)) {
         throw new RuntimeException('无法保存配置文件');
+    }
+    if (function_exists('opcache_invalidate')) {
+        opcache_invalidate($path, true);
     }
 }
 
@@ -401,18 +404,25 @@ function bili_canonical_video(string $url, string $title): array
 {
     $parts = parse_url($url);
     if (!is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
-        throw new InvalidArgumentException('只接受哔哩哔哩的 https 视频地址');
+        throw new InvalidArgumentException('只接受哔哩哔哩的 https 视频或直播地址');
     }
     $host = strtolower((string) ($parts['host'] ?? ''));
-    if (!in_array($host, ['www.bilibili.com', 'bilibili.com', 'm.bilibili.com'], true)) {
-        throw new InvalidArgumentException('只接受哔哩哔哩的 https 视频地址');
-    }
     $path = (string) ($parts['path'] ?? '');
     $query = [];
     if (!empty($parts['query'])) {
         parse_str((string) $parts['query'], $query);
     }
     $cleanTitle = bili_clean_title($title);
+    if ($host === 'live.bilibili.com') {
+        $live = bili_live_video($path, $query, $cleanTitle);
+        if ($live === null) {
+            throw new InvalidArgumentException('只接受普通视频、番剧或直播间');
+        }
+        return $live;
+    }
+    if (!in_array($host, ['www.bilibili.com', 'bilibili.com', 'm.bilibili.com'], true)) {
+        throw new InvalidArgumentException('只接受哔哩哔哩的 https 视频或直播地址');
+    }
     if (preg_match('#^/video/(BV[0-9A-Za-z]+|av[0-9]+)/?$#i', $path, $match)) {
         $id = $match[1];
         if (preg_match('/^av/i', $id)) {
@@ -449,7 +459,27 @@ function bili_canonical_video(string $url, string $title): array
             'title' => $cleanTitle,
         ];
     }
-    throw new InvalidArgumentException('只接受普通视频或番剧播放页');
+    throw new InvalidArgumentException('只接受普通视频、番剧或直播间');
+}
+
+function bili_live_video(string $path, array $query, string $title): ?array
+{
+    $id = '';
+    if (preg_match('#^/(?:blanc|h5)/([0-9]+)/?$#', $path, $match)) {
+        $id = $match[1];
+    } elseif (preg_match('#^/([0-9]+)/?$#', $path, $match)) {
+        $id = $match[1];
+    } elseif (preg_match('#^/blanc/?$#', $path)) {
+        $id = (string) ($query['room_id'] ?? ($query['roomid'] ?? ''));
+    }
+    if (!preg_match('/^[1-9][0-9]{0,11}$/', $id)) {
+        return null;
+    }
+    return [
+        'key' => 'live' . $id,
+        'url' => 'https://live.bilibili.com/' . $id,
+        'title' => $title,
+    ];
 }
 
 function bili_norm_name(string $name, bool $generate): string
@@ -460,6 +490,14 @@ function bili_norm_name(string $name, bool $generate): string
         return $generate ? ('用户' . random_int(1000, 9999)) : '';
     }
     return $name;
+}
+
+function bili_clamp_live_playback(string $key, float $time, bool $playing, float $rate): array
+{
+    if (preg_match('/^live[1-9][0-9]{0,11}$/', $key)) {
+        return [0.0, $playing, 1.0];
+    }
+    return [$time, $playing, $rate];
 }
 
 function bili_norm_playback(array $playback): array
@@ -769,6 +807,7 @@ function bili_apply_playback(array &$room, array $me, array $body, int $now, boo
         return;
     }
     [$time, $playing, $rate] = bili_norm_playback($body['playback']);
+    [$time, $playing, $rate] = bili_clamp_live_playback((string) $room['video_key'], $time, $playing, $rate);
     if ($mode === 'user') {
         $room['driver_member_id'] = $me['id'];
     }
@@ -936,6 +975,7 @@ function bili_api_create(PDO $pdo, array $cfg, array $body): array
         $video = bili_canonical_video((string) $body['video']['url'], (string) ($body['video']['title'] ?? ''));
     }
     [$time, $playing, $rate] = bili_norm_playback(is_array($body['playback'] ?? null) ? $body['playback'] : []);
+    [$time, $playing, $rate] = bili_clamp_live_playback($video['key'], $time, $playing, $rate);
     $memberId = bili_new_id();
     $token = bili_new_id();
     $room = [
@@ -1733,7 +1773,7 @@ function bili_page_overview(array $cfg): void
         $dbText = $e->getMessage();
     }
     $endpoint = bili_public_base();
-    $body = '<p class="lead">把下面的接口地址填进油猴脚本。播放进度默认跟着房主，房主可以授权某个成员调整进度或更换视频。</p>';
+    $body = '<p class="lead">把下面的接口地址填进油猴脚本。播放进度默认跟着房主，房主可以授权某个成员调整进度或更换视频。直播间同步的是房间和暂停，不按秒对齐。</p>';
     $body .= '<div class="card"><div class="kv">';
     $body .= '<div>接口地址</div><div><span class="mono">' . bili_e($endpoint) . '</span> <button type="button" class="secondary" data-copy="' . bili_e($endpoint) . '">复制</button></div>';
     $body .= '<div>数据库</div><div class="' . $dbClass . '">' . bili_e($dbText) . '</div>';
@@ -1746,8 +1786,8 @@ function bili_page_overview(array $cfg): void
     $body .= '<button class="secondary" type="submit">修复数据表</button></form></div>';
     $body .= '<div class="steps">';
     $body .= '<div class="step"><b>1. 安装脚本</b>在 Tampermonkey 里新建脚本，粘贴 bilibili-sync.user.js。</div>';
-    $body .= '<div class="step"><b>2. 填写地址</b>打开任意哔哩哔哩视频，把接口地址填进面板并保存。</div>';
-    $body .= '<div class="step"><b>3. 建房一起看</b>房主创建房间，把 6 位房号发给朋友。默认同步房主的视频和进度。</div>';
+    $body .= '<div class="step"><b>2. 填写地址</b>打开任意哔哩哔哩视频或直播间，把接口地址填进面板并保存。</div>';
+    $body .= '<div class="step"><b>3. 建房一起看</b>房主创建房间，把 6 位房号发给朋友。默认同步房主的视频、直播间和进度。</div>';
     $body .= '</div>';
     bili_layout('概览', $body, true);
 }
