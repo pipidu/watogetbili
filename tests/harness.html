@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>进度同步面板预览</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: #111; color: #eee; }
+    video { width: min(960px, 100%); margin: 24px; background: #000; }
+  </style>
+</head>
+<body>
+  <video id="preview" controls playsinline></video>
+  <script>
+    const store = Object.create(null);
+    window.GM_getValue = (key, fallback) => (key in store ? store[key] : fallback);
+    window.GM_setValue = (key, value) => { store[key] = value; };
+    window.GM_addStyle = (css) => {
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.documentElement.appendChild(style);
+    };
+    window.GM_xmlhttpRequest = (options) => {
+      fetch(options.url, {
+        method: options.method || 'GET',
+        headers: options.headers || {},
+        body: options.data,
+      }).then(async (response) => {
+        const responseText = await response.text();
+        options.onload({ status: response.status, responseText });
+      }).catch(() => {
+        if (options.onerror) options.onerror();
+      });
+    };
+  </script>
+  <script>
+    (async () => {
+      const video = document.getElementById('preview');
+      try {
+        const response = await fetch('/tests/preview.mp4');
+        if (response.ok) {
+          video.src = URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: 'video/mp4' }));
+          await new Promise((resolve) => {
+            if (video.readyState >= 1) resolve();
+            else video.addEventListener('loadedmetadata', resolve, { once: true });
+          });
+        }
+      } catch (err) {
+        /* 没有本地预览视频时，面板仍然可用 */
+      }
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/bilibili-sync.user.js';
+        script.onload = resolve;
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+      const params = new URLSearchParams(location.search);
+      const room = params.get('room');
+      const ready = params.get('ready');
+      const code = room || ready;
+      if (!code) return;
+      document.getElementById('bili-sync-backend').value = location.origin + '/sync.php';
+      document.getElementById('bili-sync-nick').value = '自动成员';
+      document.getElementById('bili-sync-code').value = code;
+      if (!room) return;
+      const join = Array.from(document.querySelectorAll('#bili-sync-root button')).find((button) => button.textContent === '加入');
+      if (join) join.click();
+      if (new URLSearchParams(location.search).get('debug') === '1') {
+        setTimeout(() => {
+          const out = document.createElement('pre');
+          out.id = 'debug-out';
+          out.textContent = JSON.stringify({
+            currentTime: video.currentTime,
+            readyState: video.readyState,
+          });
+          document.body.appendChild(out);
+        }, 3000);
+      }
+    })();
+  </script>
+</body>
+</html>

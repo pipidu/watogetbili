@@ -1,0 +1,103 @@
+[
+  {
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD?p=2&spm_id_from=333.1007",
+    "title": "测试标题",
+    "expect": {
+      "key": "BV1xx411c7mD#p2",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+      "title": "测试标题"
+    }
+  },
+  {
+    "url": "https://m.bilibili.com/video/BV1xx411c7mD",
+    "title": "  移动端  ",
+    "expect": {
+      "key": "BV1xx411c7mD#p1",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=1",
+      "title": "移动端"
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/video/av170001/?p=3",
+    "title": "AV",
+    "expect": {
+      "key": "av170001#p3",
+      "url": "https://www.bilibili.com/video/av170001/?p=3",
+      "title": "AV"
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/video/AV170001",
+    "title": "",
+    "expect": {
+      "key": "av170001#p1",
+      "url": "https://www.bilibili.com/video/av170001/?p=1",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=0",
+    "title": "",
+    "expect": {
+      "key": "BV1xx411c7mD#p1",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=1",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=99999",
+    "title": "",
+    "expect": {
+      "key": "BV1xx411c7mD#p9999",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=9999",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/bangumi/play/ep123456?from=search",
+    "title": "番剧",
+    "expect": {
+      "key": "ep123456",
+      "url": "https://www.bilibili.com/bangumi/play/ep123456",
+      "title": "番剧"
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/bangumi/play/SS28296?ep=321",
+    "title": "季",
+    "expect": {
+      "key": "ss28296#ep321",
+      "url": "https://www.bilibili.com/bangumi/play/ss28296?ep=321",
+      "title": "季"
+    }
+  },
+  {
+    "url": "https://www.bilibili.com/bangumi/play/ss28296",
+    "title": "",
+    "expect": {
+      "key": "ss28296",
+      "url": "https://www.bilibili.com/bangumi/play/ss28296",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://evil.example/video/BV1xx411c7mD",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "http://www.bilibili.com/video/BV1xx411c7mD",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/extra",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "javascript:alert(1)",
+    "title": "",
+    "expect": null
+  }
+]
