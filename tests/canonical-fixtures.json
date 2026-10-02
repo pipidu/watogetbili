@@ -99,5 +99,85 @@
     "url": "javascript:alert(1)",
     "title": "",
     "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/7777?live_from=1",
+    "title": "直播间",
+    "expect": {
+      "key": "live7777",
+      "url": "https://live.bilibili.com/7777",
+      "title": "直播间"
+    }
+  },
+  {
+    "url": "https://live.bilibili.com/blanc/545068/",
+    "title": "剧场",
+    "expect": {
+      "key": "live545068",
+      "url": "https://live.bilibili.com/545068",
+      "title": "剧场"
+    }
+  },
+  {
+    "url": "https://live.bilibili.com/h5/6",
+    "title": "",
+    "expect": {
+      "key": "live6",
+      "url": "https://live.bilibili.com/6",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://live.bilibili.com/blanc?room_id=12",
+    "title": "",
+    "expect": {
+      "key": "live12",
+      "url": "https://live.bilibili.com/12",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://live.bilibili.com/blanc/?roomid=34",
+    "title": "",
+    "expect": {
+      "key": "live34",
+      "url": "https://live.bilibili.com/34",
+      "title": ""
+    }
+  },
+  {
+    "url": "https://live.bilibili.com/0",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/p/html/1",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/7777/extra",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "http://live.bilibili.com/7777",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/0123",
+    "title": "",
+    "expect": null
+  },
+  {
+    "url": "https://live.bilibili.com/1234567890123",
+    "title": "",
+    "expect": null
   }
 ]

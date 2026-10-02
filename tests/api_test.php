@@ -490,6 +490,38 @@ $heirView = api('sync', [
 ]);
 expect(($heirView['json']['you']['isHost'] ?? false) === true, 'host leaving promotes another member');
 
+$live = api('create', [
+    'name' => '直播房主',
+    'video' => ['url' => 'https://live.bilibili.com/blanc/545068?live_from=1', 'title' => '直播间'],
+    'playback' => ['time' => 40, 'playing' => true, 'rate' => 1.5],
+]);
+expect(
+    ($live['json']['room']['video']['key'] ?? '') === 'live545068'
+    && ($live['json']['room']['video']['url'] ?? '') === 'https://live.bilibili.com/545068'
+    && ($live['json']['room']['playback']['time'] ?? -1) === 0
+    && ($live['json']['room']['playback']['rate'] ?? 0) === 1
+    && ($live['json']['room']['playback']['playing'] ?? false) === true,
+    'live room ignores timeline and keeps play state'
+);
+$liveBeat = api('sync', [
+    'roomId' => $live['json']['room']['id'],
+    'memberId' => $live['json']['you']['id'],
+    'token' => $live['json']['token'],
+    'mode' => 'heartbeat',
+    'playback' => ['time' => 80, 'playing' => false, 'rate' => 2],
+]);
+expect(
+    ($liveBeat['json']['room']['playback']['time'] ?? -1) === 0
+    && ($liveBeat['json']['room']['playback']['playing'] ?? true) === false
+    && ($liveBeat['json']['room']['playback']['rate'] ?? 0) === 1,
+    'live heartbeat only syncs pause'
+);
+$badLive = api('create', [
+    'name' => '坏直播',
+    'video' => ['url' => 'https://live.bilibili.com/p/html/1', 'title' => ''],
+]);
+expect($badLive['status'] === 400, 'non-room live pages are rejected');
+
 $logout = follow(http('POST', $base, [
     'csrf' => csrf_from(http('GET', $base)['body']),
     'form' => 'logout',

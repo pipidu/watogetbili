@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         哔哩哔哩进度同步
 // @namespace    https://github.com/pipidu/watogetbili
-// @version      1.0.0
-// @description  创建房间，多人同步哔哩哔哩视频和播放进度。默认同步房主，房主可授权成员调整进度或更换视频。
+// @version      1.1.0
+// @description  创建房间，多人同步哔哩哔哩视频、直播间和播放进度。默认同步房主，房主可授权成员调整进度或更换视频。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/bangumi/play/*
 // @match        https://m.bilibili.com/video/*
 // @match        https://m.bilibili.com/bangumi/play/*
+// @match        https://live.bilibili.com/*
+// @grant        unsafeWindow
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -65,8 +67,9 @@
     }
     if (parsed.protocol !== 'https:') return null;
     const host = parsed.hostname.toLowerCase();
-    if (host !== 'www.bilibili.com' && host !== 'bilibili.com' && host !== 'm.bilibili.com') return null;
     const clean = cleanTitle(title);
+    if (host === 'live.bilibili.com') return liveIdentity(parsed, clean);
+    if (host !== 'www.bilibili.com' && host !== 'bilibili.com' && host !== 'm.bilibili.com') return null;
     let match = parsed.pathname.match(/^\/video\/(BV[0-9A-Za-z]+|av\d+)\/?$/i);
     if (match) {
       let id = match[1];
@@ -102,6 +105,22 @@
     return null;
   }
 
+  function liveIdentity(parsed, title) {
+    let id = '';
+    let match = parsed.pathname.match(/^\/(?:blanc|h5)\/(\d+)\/?$/);
+    if (match) id = match[1];
+    else if ((match = parsed.pathname.match(/^\/(\d+)\/?$/))) id = match[1];
+    else if (/^\/blanc\/?$/.test(parsed.pathname)) {
+      id = parsed.searchParams.get('room_id') || parsed.searchParams.get('roomid') || '';
+    }
+    if (!/^[1-9]\d{0,11}$/.test(id)) return null;
+    return {
+      key: 'live' + id,
+      url: 'https://live.bilibili.com/' + id,
+      title: title,
+    };
+  }
+
   function cleanTitle(title) {
     const text = String(title || '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
     const chars = Array.from(text);
@@ -113,12 +132,72 @@
     return String(document.title || '').replace(/\s*[-_｜|].*哔哩哔哩[\s\S]*$/, '').trim();
   }
 
+  function isLiveKey(key) {
+    return /^live[1-9]\d{0,11}$/.test(String(key || ''));
+  }
+
+  function liveId(key) {
+    return isLiveKey(key) ? String(key).slice(4) : '';
+  }
+
+  function neptuneRoom() {
+    const scopes = [];
+    try {
+      if (typeof unsafeWindow !== 'undefined') scopes.push(unsafeWindow);
+    } catch (err) {
+      /* 沙箱里可能没有 unsafeWindow */
+    }
+    scopes.push(window);
+    for (let i = 0; i < scopes.length; i++) {
+      try {
+        const data = scopes[i].__NEPTUNE_IS_MY_WAIFU__;
+        const room = data && data.roomInitRes && data.roomInitRes.data;
+        if (room && (room.room_id || room.short_id)) return room;
+      } catch (err) {
+        /* 页面数据还没准备好 */
+      }
+    }
+    return null;
+  }
+
+  function liveIdsOnPage() {
+    const ids = [];
+    const fromUrl = canonicalize(location.href, '');
+    const urlId = fromUrl ? liveId(fromUrl.key) : '';
+    if (urlId) ids.push(urlId);
+    const room = neptuneRoom();
+    if (room) {
+      ['room_id', 'short_id'].forEach((field) => {
+        const value = String(room[field] || '');
+        if (/^[1-9]\d{0,11}$/.test(value) && ids.indexOf(value) === -1) ids.push(value);
+      });
+    }
+    return ids;
+  }
+
+  function sameVideo(local, remote) {
+    if (!local || !remote || !local.key || !remote.key) return false;
+    if (local.key === remote.key) return true;
+    if (!isLiveKey(local.key) || !isLiveKey(remote.key)) return false;
+    return liveIdsOnPage().indexOf(liveId(remote.key)) !== -1;
+  }
+
   function pageIdentity() {
-    return canonicalize(location.href, pageTitle());
+    const identity = canonicalize(location.href, pageTitle());
+    if (!identity || !isLiveKey(identity.key)) return identity;
+    const room = neptuneRoom();
+    const shortId = room ? String(room.short_id || '') : '';
+    const id = /^[1-9]\d{0,11}$/.test(shortId) ? shortId : liveId(identity.key);
+    return {
+      key: 'live' + id,
+      url: 'https://live.bilibili.com/' + id,
+      title: identity.title,
+    };
   }
 
   function localizeUrl(url) {
     const target = new URL(url);
+    if (target.hostname === 'live.bilibili.com') return target.toString();
     target.hostname = location.hostname === 'm.bilibili.com' ? 'm.bilibili.com' : 'www.bilibili.com';
     return target.toString();
   }
@@ -239,6 +318,10 @@
   function capturePlayback() {
     const video = getVideo();
     if (!video) return { time: 0, playing: false, rate: 1 };
+    const identity = pageIdentity();
+    if (identity && isLiveKey(identity.key)) {
+      return { time: 0, playing: !video.paused && !video.ended, rate: 1 };
+    }
     const time = Number.isFinite(video.currentTime) ? Math.round(video.currentTime * 1000) / 1000 : 0;
     return {
       time: time,
@@ -385,11 +468,50 @@
     return next;
   }
 
+  function liveEdge(video) {
+    const ranges = video.seekable;
+    if (!ranges || ranges.length === 0) return null;
+    const end = ranges.end(ranges.length - 1);
+    return Number.isFinite(end) ? end : null;
+  }
+
+  function applyLivePlayback(video, playback) {
+    const shouldPlay = playback.playing && video.paused && Date.now() - lastPlayKick > 1500;
+    const shouldPause = !playback.playing && !video.paused;
+    const edge = liveEdge(video);
+    const behind = playback.playing && edge != null && edge - video.currentTime > 2.5 && canSeekTo(video, edge) && Date.now() - lastSeekAt > 800;
+    const rateDiff = Math.abs((video.playbackRate || 1) - 1) > 0.01;
+    if (!shouldPlay && !shouldPause && !behind && !rateDiff) return;
+    suppressUntil = Date.now() + 700;
+    if (rateDiff) video.playbackRate = 1;
+    if (behind) {
+      lastSeekAt = Date.now();
+      try {
+        video.currentTime = edge;
+      } catch (err) {
+        /* 直播播放器暂时不能回到最新画面 */
+      }
+    }
+    if (shouldPlay) {
+      lastPlayKick = Date.now();
+      const pendingPlay = video.play();
+      if (pendingPlay && typeof pendingPlay.catch === 'function') {
+        pendingPlay.catch(() => showNeedGesture());
+      }
+    } else if (shouldPause) {
+      video.pause();
+    }
+  }
+
   function applyPlayback(room) {
     if (!room || !room.playback || isDriver()) return;
     const video = getVideo();
     const playback = room.playback;
     if (!video || video.readyState < 1) return;
+    if (room.video && isLiveKey(room.video.key)) {
+      applyLivePlayback(video, playback);
+      return;
+    }
     const target = capTime(video, expectedTime(playback));
     const threshold = playback.playing ? DRIFT_PLAYING : DRIFT_PAUSED;
     const rate = playback.rate || 1;
@@ -470,7 +592,7 @@
     const next = localizeUrl(url);
     const local = pageIdentity();
     const target = canonicalize(next, '');
-    if (local && target && local.key === target.key) return;
+    if (local && target && sameVideo(local, target)) return;
     navigating = true;
     try {
       sessionStorage.setItem('biliSyncFollow', '1');
@@ -491,7 +613,7 @@
       }
       return;
     }
-    if (local.key === remote.key) return;
+    if (sameVideo(local, remote)) return;
     if (!bootFollow && canChangeVideo() && !pushedStartup) {
       pushedStartup = true;
       queueVideo(local, capturePlayback());
@@ -507,8 +629,15 @@
     const key = identity ? identity.key : '';
     if (key === lastKey) return;
     lastKey = key;
-    if (!session || !lastRoom || !identity || navigating) return;
-    if (lastRoom.video && lastRoom.video.key === key) return;
+    if (!session || !lastRoom || navigating) return;
+    if (!identity) {
+      if (!canChangeVideo() && lastRoom.video && lastRoom.video.url) followNav(lastRoom.video.url);
+      return;
+    }
+    if (lastRoom.video && sameVideo(identity, lastRoom.video)) {
+      if (canChangeVideo() && lastRoom.video.key !== identity.key) queueVideo(identity, capturePlayback());
+      return;
+    }
     if (!canChangeVideo()) {
       if (lastRoom.video && lastRoom.video.url) followNav(lastRoom.video.url);
       return;
@@ -554,7 +683,7 @@
 
   async function createRoom() {
     const identity = pageIdentity();
-    if (!identity) throw new Error('请在视频或番剧播放页使用');
+    if (!identity) throw new Error('请在视频、番剧或直播间页面使用');
     const res = await api('create', {
       name: nickname(),
       video: identity,
@@ -670,6 +799,10 @@
     const driver = memberName(lastRoom.playback.driverId);
     if (!video) {
       el.textContent = '同步源 ' + driver + ' · 还没找到播放器';
+      return;
+    }
+    if (lastRoom.video && isLiveKey(lastRoom.video.key)) {
+      el.textContent = '同步源 ' + driver + (lastRoom.playback.playing ? ' · 直播' : ' · 直播已暂停');
       return;
     }
     const drift = video.currentTime - expectedTime(lastRoom.playback);
@@ -795,7 +928,7 @@
         }),
         h('button', { type: 'button', class: 'ghost danger', onclick: () => leaveRoom(), text: '离开' }),
       ]),
-      h('div', { class: 'meta', text: amHost ? '你是房主。朋友加入后，默认跟着你的视频和进度。' : (canControl() || canChangeVideo() ? '你已获得授权，操作会同步给房间里的其他人。' : '正在跟随房主。暂停或拖动会被拉回去。') }),
+      h('div', { class: 'meta', text: amHost ? '你是房主。朋友加入后，默认跟着你的视频、直播间和进度。' : (canControl() || canChangeVideo() ? '你已获得授权，操作会同步给房间里的其他人。' : (lastRoom.video && isLiveKey(lastRoom.video.key) ? '正在跟随房主的直播间。暂停会被拉开，播放会回到最新画面。' : '正在跟随房主。暂停或拖动会被拉回去。')) }),
       h('div', { class: 'meta', text: video.title || video.key || '等待房主打开视频' }),
       h('div', { id: 'bili-sync-drift', class: 'meta' }),
       ...(allow ? [allow] : []),
@@ -917,7 +1050,7 @@
         ]),
       ]),
       h('div', { id: 'bili-sync-room', hidden: true }),
-      h('div', { class: 'meta', text: '默认同步房主。房主勾选授权后，该成员的拖动、暂停和换视频会成为新的同步源。' })
+      h('div', { class: 'meta', text: '默认同步房主。直播间同步房间和暂停，不按秒对齐。房主勾选授权后，该成员的操作会成为新的同步源。' })
     );
 
     root = h('div', { id: 'bili-sync-root' }, [
